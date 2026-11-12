@@ -30,23 +30,6 @@ The whole input file is loaded into memory, so allow enough RAM for its data.
 A header-only CSV produces an Avro file with zero records; a completely empty
 file is rejected.
 
-## Container
-
-From the repository root:
-
-```sh
-docker build -t csv2avro ./csv2avro
-docker run --rm -v "$PWD/data:/data" csv2avro \
-  /data/input.csv /data/output.avro
-```
-
-If your build environment uses a private CA, add
-`--secret id=proxy_ca,src=/path/to/ca.pem` to the build command.
-
-For Kubernetes, push the image to your registry and use it in a Job with
-`args: ["/data/input.csv", "/data/output.avro"]`. Mount your data volume at
-`/data` so the input is available and the output persists after the Job exits.
-
 ## Check
 
 With dependencies installed, run from this directory:
