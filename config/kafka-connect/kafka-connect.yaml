@@ -9,7 +9,7 @@ metadata:
     strimzi.io/use-connector-resources: "true"
 spec:
   version: 4.3.2
-  image: ghcr.io/goldeneas/kafka-connect
+  image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-ccf45fb7b1366ef17c0aa68454356af38187da86 
   replicas: 1
   bootstrapServers: kafka-cluster-kafka-bootstrap:9093
   groupId: kafka-connect-group
