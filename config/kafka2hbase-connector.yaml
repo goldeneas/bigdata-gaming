@@ -26,7 +26,7 @@ spec:
     confluent.topic.bootstrap.servers: kafka-cluster-kafka-bootstrap:9092
     confluent.topic.replication.factor: 1
     hbase.zookeeper.quorum: zookeeper
-    hbase.zookeeper.property.clientPort: 2182
+    hbase.zookeeper.property.clientPort: 2181
     auto.create.tables: true
     auto.create.column.families: true
     table.name.format: ${topic}
