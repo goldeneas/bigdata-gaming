@@ -1,8 +1,7 @@
 # OpenSky airport arrivals downloader
 
-`download_arrivals.py` downloads every flight that arrived at one or more airports
-(for example New York's JFK, LaGuardia and Newark) from the
-[OpenSky Network REST API](https://openskynetwork.github.io/opensky-api/rest.html)
+`download_arrivals.py` downloads every flight that arrived at New York JFK (`KJFK`)
+from the [OpenSky Network REST API](https://openskynetwork.github.io/opensky-api/rest.html)
 and saves it as CSV files.
 
 ## Setup
@@ -27,43 +26,26 @@ You need Python 3.10 or newer and a free OpenSky account.
 ## Usage
 
 ```bash
-python download_arrivals.py --airports KJFK KLGA KEWR --start 2025-01-01 --end 2025-03-31
+python download_arrivals.py --airports KJFK --start 2025-01-01 --end 2025-03-31
 ```
 
 | Option | Meaning | Default |
 |---|---|---|
-| `--airports` | ICAO airport codes (`KJFK`, not `JFK`) | `KJFK` |
+| `--airports` | ICAO airport code (`KJFK`, not `JFK`) | `KJFK` |
 | `--start`, `--end` | First and last day, `YYYY-MM-DD`, in UTC. Both included. | required |
 | `--credentials` | Path to your `credentials.json` | `credentials.json` |
 | `--out` | Output folder | `data/opensky_arrivals` |
 | `--max-wait` | Seconds to wait when out of credits before giving up | `900` |
 
-## What it does
-
-1. Splits the date range into chunks of at most 2 days. That's the most the API returns per
-   request, and the cheapest per day. Chunks never cross a month boundary.
-2. Skips chunks that already have a file, so you can re-run the same command at any time.
-3. Logs in with your API client and asks `/flights/arrival` for each remaining chunk.
-4. Writes each answer to its own CSV:
-   ```
-   data/opensky_arrivals/airport=KJFK/year=2025/month=01/2025-01-01_2025-01-02.csv
-   ```
-   The `name=value` folder names are Hive-style partitions, so Spark adds `airport`, `year`
-   and `month` as columns automatically:
-   `spark.read.option("header", True).csv("data/opensky_arrivals")`.
-5. Prints how many credits you have left after each request.
+The files end up in folders like
+`data/opensky_arrivals/airport=KJFK/year=2025/month=01/2025-01-01_2025-01-02.csv`.
 
 ## Credits (the daily limit)
 
-| Account | Credits per day |
-|---|---|
-| Standard (what you get after signing up) | 4,000 |
-| Active feeder (you run an ADS-B receiver that sends data to OpenSky) | 8,000 |
-
-Each request costs **30 credits**, so a standard account can download about **266 days of one
-airport per day**. Three airports for a whole year take about 4–5 days. When the credits run out
-the script stops cleanly. **Run the same command again the next day** and it continues where it
-stopped.
+Each account gets **4,000 credits per day**. One request covers 2 days and costs 30 credits,
+so one account can download about **266 days of JFK per day**, which means **one year takes
+about 1.5 days**. When the credits run out the script stops. Run the same command again the
+next day and it continues where it stopped (files it already saved are skipped).
 
 ## The CSV columns
 
@@ -80,12 +62,64 @@ stopped.
 
 ## Things to know
 
-- **Only up to yesterday.** OpenSky fills the arrivals table with a nightly job, so `--end`
-  is moved back to yesterday automatically.
-- **Times are UTC.** A New York day spans two UTC days, so convert to `America/New_York`
-  before grouping by day or joining with local data.
+- **Times are UTC, not New York time.** UTC is the same as London winter time. New York is
+  5 hours behind UTC in winter and 4 hours behind in summer (daylight saving). So a plane
+  that lands at JFK at **21:00 on 1 January, New York time**, is stored as
+  **02:00 on 2 January** in `lastSeen_utc`, and it is in the file for 2 January.
+  If you count "arrivals per day" straight from the UTC dates, every evening flight after
+  19:00 (20:00 in summer) gets counted on the next day. Convert to New York time first,
+  for example in Spark:
+  ```python
+  from pyspark.sql import functions as F
+  df = df.withColumn("lastSeen_ny",
+                     F.from_utc_timestamp(F.to_timestamp("lastSeen_utc"), "America/New_York"))
+  ```
+  Then group by the date of `lastSeen_ny`.
 - **`lastSeen` is close to, but not exactly, the landing time.** It's the last time a
   receiver picked the plane up.
 - **Test with one day first.** The docs don't say how far back the data goes.
-- **Cloud IPs may be blocked.** OpenSky warns that requests from AWS and other cloud providers
-  can fail. Run it from your laptop or the university network.
+
+## Download progress (KJFK)
+
+✅ whole year downloaded · 🟨 partly downloaded · ⬜ not yet
+
+Put your name in **Who** for the years you're downloading, so two people don't download the
+same year.
+
+| Year | Status | Who |
+|---|---|---|
+| 2026 | ⬜ | |
+| 2025 | 🟨 Jan–Nov | |
+| 2024 | ⬜ | |
+| 2023 | ⬜ | |
+| 2022 | ⬜ | |
+| 2021 | ⬜ | |
+| 2020 | ⬜ | |
+| 2019 | ⬜ | |
+| 2018 | ⬜ | |
+| 2017 | ⬜ | |
+| 2016 | ⬜ | |
+| 2015 | ⬜ | |
+| 2014 | ⬜ | |
+| 2013 | ⬜ | |
+| 2012 | ⬜ | |
+| 2011 | ⬜ | |
+| 2010 | ⬜ | |
+| 2009 | ⬜ | |
+| 2008 | ⬜ | |
+| 2007 | ⬜ | |
+| 2006 | ⬜ | |
+| 2005 | ⬜ | |
+
+## Questions
+
+1. **Is it a problem that we only have `firstSeen` and `lastSeen`?** These are the first and
+   last times a receiver saw the plane, not the real take-off and landing times. `lastSeen`
+   is usually close to landing, but not exactly the same.
+2. **What date range do we want, and how do we split the work?** There is no real
+   documentation on how far back the data goes, so we should test a few older years first.
+   - From which year to which year do we want the data?
+   - How do we split it between us? (For example, each person downloads a few years with
+     their own account. The files don't overlap, so they can simply be copied together.)
+   - Where do we store it? 11 months of CSVs is only about 20 MB, so 15 years would be
+     roughly 330 MB.
