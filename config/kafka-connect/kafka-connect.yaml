@@ -9,17 +9,13 @@ metadata:
     strimzi.io/use-connector-resources: "true"
 spec:
   version: 4.3.2
-  image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-ccf45fb7b1366ef17c0aa68454356af38187da86 
+  image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-ccf45fb7b1366ef17c0aa68454356af38187da86
   replicas: 1
-  bootstrapServers: kafka-cluster-kafka-bootstrap:9093
+  bootstrapServers: kafka-cluster-kafka-bootstrap:9092
   groupId: kafka-connect-group
   configStorageTopic: kafka-connect-configs
   statusStorageTopic: kafka-connect-status
   offsetStorageTopic: kafka-connect-offsets
-  tls:
-    trustedCertificates:
-      - secretName: kafka-cluster-cluster-ca-cert
-        pattern: "*.crt"
   config:
     # -1 means it will use the default replication factor configured in the broker
     config.storage.replication.factor: -1

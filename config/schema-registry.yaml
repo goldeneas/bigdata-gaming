@@ -17,8 +17,12 @@ spec:
           image: confluentinc/cp-schema-registry:7.7.13
           env:
             - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
-              value: SSL:kafka-cluster-kafka-bootstrap:9093
+              value: PLAINTEXT://kafka-cluster-kafka-bootstrap:9092
+            - name: SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL
+              value: PLAINTEXT
             - name: SCHEMA_REGISTRY_HOST_NAME
+              value: schema-registry
+            - name: SCHEMA_REGISTRY_LISTENERS
               value: http://0.0.0.0:8081
           ports:
             - containerPort: 8081
