@@ -1,0 +1,10 @@
+# Secrets
+credentials.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Downloaded data
+# download_flight_data/data/
