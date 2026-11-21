@@ -1,0 +1,195 @@
+# HBase 2.6.6 + Phoenix 5.3.1: hbase-site.xml, Master, RegionServer, REST
+# Stackable without operator
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hbase-config
+data:
+  hbase-site.xml: |
+    <?xml version="1.0"?>
+    <configuration>
+      <!-- separate Master and RegionServer processes -->
+      <property>
+        <name>hbase.cluster.distributed</name>
+        <value>true</value>
+      </property>
+      <!-- HBase data stored in HDFS -->
+      <property>
+        <name>hbase.rootdir</name>
+        <value>hdfs://namenode:9000/hbase</value>
+      </property>
+      <!-- coordination via ZooKeeper from zookeeper.yaml -->
+      <property>
+        <name>hbase.zookeeper.quorum</name>
+        <value>zookeeper:2181</value>
+      </property>
+      <property>
+        <name>zookeeper.znode.parent</name>
+        <value>/hbase</value>
+      </property>
+      <!-- HBase writes to HDFS with its own client: demo has 1 DataNode, so 1 replica (default 3) -->
+      <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+      </property>
+    </configuration>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-master
+spec:
+  clusterIP: None   # headless - stable pod DNS name
+  selector:
+    app: hbase-master
+  ports:
+    - name: rpc
+      port: 16000
+    - name: ui
+      port: 16010
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-master
+spec:
+  serviceName: hbase-master
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hbase-master
+  template:
+    metadata:
+      labels:
+        app: hbase-master
+    spec:
+      containers:
+        - name: hbase-master
+          image: oci.stackable.tech/sdp/hbase:2.6.6-stackable26.7.0
+          command: ["hbase", "master", "start"]
+          env:
+            - name: HBASE_HEAPSIZE
+              value: "384m"
+          ports:
+            - containerPort: 16000
+            - containerPort: 16010
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: config
+              mountPath: /stackable/hbase/conf/hbase-site.xml
+              subPath: hbase-site.xml
+      volumes:
+        - name: config
+          configMap:
+            name: hbase-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-regionserver
+spec:
+  clusterIP: None   # headless - RegionServer registers by hostname, Master must resolve it
+  selector:
+    app: hbase-regionserver
+  ports:
+    - name: rpc
+      port: 16020
+    - name: ui
+      port: 16030
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-regionserver
+spec:
+  serviceName: hbase-regionserver
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hbase-regionserver
+  template:
+    metadata:
+      labels:
+        app: hbase-regionserver
+    spec:
+      containers:
+        - name: hbase-regionserver
+          image: oci.stackable.tech/sdp/hbase:2.6.6-stackable26.7.0
+          command: ["hbase", "regionserver", "start"]
+          env:
+            - name: HBASE_HEAPSIZE
+              value: "512m"
+          ports:
+            - containerPort: 16020
+            - containerPort: 16030
+          resources:
+            requests:
+              cpu: 100m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /stackable/hbase/conf/hbase-site.xml
+              subPath: hbase-site.xml
+      volumes:
+        - name: config
+          configMap:
+            name: hbase-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-rest
+spec:
+  selector:
+    app: hbase-rest
+  ports:
+    - name: rest
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hbase-rest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hbase-rest
+  template:
+    metadata:
+      labels:
+        app: hbase-rest
+    spec:
+      containers:
+        - name: hbase-rest
+          image: oci.stackable.tech/sdp/hbase:2.6.6-stackable26.7.0
+          command: ["hbase", "rest", "start", "-p", "8080"]
+          env:
+            - name: HBASE_HEAPSIZE
+              value: "256m"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 384Mi
+            limits:
+              cpu: "0.5"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /stackable/hbase/conf/hbase-site.xml
+              subPath: hbase-site.xml
+      volumes:
+        - name: config
+          configMap:
+            name: hbase-config

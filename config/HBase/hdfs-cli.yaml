@@ -1,0 +1,24 @@
+# Pod with the `hdfs dfs` client - uses the same config as HDFS (ConfigMap hadoop-config from hdfs.yaml)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hdfs-cli
+spec:
+  containers:
+    - name: hadoop
+      image: apache/hadoop:3.3.6
+      command: ["sleep", "infinity"]
+      env:
+        - name: HADOOP_USER_NAME
+          value: root
+      volumeMounts:
+        - name: config
+          mountPath: /opt/hadoop/etc/hadoop/core-site.xml
+          subPath: core-site.xml
+        - name: config
+          mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml
+          subPath: hdfs-site.xml
+  volumes:
+    - name: config
+      configMap:
+        name: hadoop-config

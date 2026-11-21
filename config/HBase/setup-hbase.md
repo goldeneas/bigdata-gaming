@@ -1,136 +1,84 @@
-# HBase + HDFS on microk8s (Stackable Data Platform 26.7)
-
-Based on https://docs.stackable.tech/home/stable/hbase/getting_started/
-Namespaces: operators -> operators, HBase stack (ZooKeeper, HDFS, HBase) -> hbase.
-Bitnami charts are not used - Bitnami now publishes only legacy images (bitnamilegacy).
+# HBase + HDFS (without operators)
 
 ## 1. App versions
 
-Stackable operators: 26.7.0
-Apache ZooKeeper: 3.9.5
-Apache Hadoop HDFS: 3.5.0
-Apache HBase: 2.6.6
+Apache ZooKeeper: 3.9.1 (bitnamilegacy/zookeeper:3.9.1-debian-12-r13)
+Apache Hadoop HDFS: 3.3.6 (apache/hadoop:3.3.6)
+Apache HBase: 2.6.6 + Apache Phoenix 5.3.1 (oci.stackable.tech/sdp/hbase:2.6.6-stackable26.7.0, without operator)
 
-## 2. How to - microk8s
+## 2. Files
 
-Uses microk8s kubectl / microk8s helm.
+Resources set to the minimum for a demo: 0.5 CPU and ~2.9Gi RAM requests, ~4.3Gi RAM limits, ~1.5Gi PVC in total.
 
-### 2.1 Preparation (once)
+zookeeper.yaml - ZooKeeper for HBase, 1 replica
+hdfs.yaml - HDFS: core-site.xml and hdfs-site.xml in a ConfigMap, 1 NameNode, 1 DataNode (replication 1)
+hbase.yaml - hbase-site.xml, HBase Master, RegionServer, REST
+hdfs-cli.yaml - pod with the hdfs dfs client, same config as HDFS (optional, after hdfs.yaml)
 
-microk8s status --wait-ready
-microk8s enable dns hostpath-storage helm
+## 3. How to - local (microk8s)
 
-### 2.2 Operators
+microk8s kubectl apply -f zookeeper.yaml
+microk8s kubectl apply -f hdfs.yaml
+microk8s kubectl apply -f hbase.yaml
+microk8s kubectl get pods,pvc
 
-microk8s uses a non-standard kubelet dir, so secret-operator and listener-operator need kubeletDir set (a /var/lib/kubelet symlink is not enough - the CSI drivers fail to register).
+## 4. How to - sdu cluster (kubectl)
 
-microk8s kubectl create namespace operators
-microk8s helm install --wait -n operators zookeeper-operator oci://oci.stackable.tech/sdp-charts/zookeeper-operator --version 26.7.0 &
-microk8s helm install --wait -n operators hdfs-operator oci://oci.stackable.tech/sdp-charts/hdfs-operator --version 26.7.0 &
-microk8s helm install --wait -n operators commons-operator oci://oci.stackable.tech/sdp-charts/commons-operator --version 26.7.0 &
-microk8s helm install --wait -n operators secret-operator oci://oci.stackable.tech/sdp-charts/secret-operator --version 26.7.0 --set csiNodeDriver.kubeletDir=/var/snap/microk8s/common/var/lib/kubelet &
-microk8s helm install --wait -n operators listener-operator oci://oci.stackable.tech/sdp-charts/listener-operator --version 26.7.0 --set kubeletDir=/var/snap/microk8s/common/var/lib/kubelet &
-microk8s helm install --wait -n operators hbase-operator oci://oci.stackable.tech/sdp-charts/hbase-operator --version 26.7.0 &
-wait
+kubectl apply -f zookeeper.yaml
+kubectl apply -f hdfs.yaml
+kubectl apply -f hbase.yaml
+kubectl get pods,pvc
 
-### 2.3 Clusters (order: ZooKeeper -> znodes -> HDFS -> HBase, this will change a lot)
+### 4.1 Startup order
 
-microk8s kubectl create namespace hbase
-microk8s kubectl -n hbase apply -f zk-values.yaml
-microk8s kubectl -n hbase apply -f znode-values.yaml
-microk8s kubectl -n hbase apply -f hdfs-values.yaml
-microk8s kubectl -n hbase apply -f hbase-values.yaml
+The NameNode formats itself on first start. DataNode and HBase retry their connections until NameNode and ZooKeeper are up.
+TODO: initContainer in HBase waiting for namenode:9000 and zookeeper:2181
 
-### 2.4 Check
+### 4.2 Check
 
-microk8s kubectl -n hbase wait --for=condition=Available --timeout=15m zookeepercluster/simple-zk hdfscluster/simple-hdfs hbasecluster/simple-hbase
-microk8s kubectl -n hbase get pods,pvc
+kubectl rollout status statefulset/zookeeper
+kubectl rollout status statefulset/namenode
+kubectl rollout status statefulset/datanode
+kubectl rollout status statefulset/hbase-master
+kubectl rollout status statefulset/hbase-regionserver
+kubectl rollout status deployment/hbase-rest
 
-## 3. How to - kubectl
+## 5. Usage
 
-### 3.2 Operators
+### 5.1 HDFS
 
-kubectl create namespace operators
-helm install --wait -n operators zookeeper-operator oci://oci.stackable.tech/sdp-charts/zookeeper-operator --version 26.7.0 &
-helm install --wait -n operators hdfs-operator oci://oci.stackable.tech/sdp-charts/hdfs-operator --version 26.7.0 &
-helm install --wait -n operators commons-operator oci://oci.stackable.tech/sdp-charts/commons-operator --version 26.7.0 &
-helm install --wait -n operators secret-operator oci://oci.stackable.tech/sdp-charts/secret-operator --version 26.7.0 --set csiNodeDriver.kubeletDir=/var/snap/microk8s/common/var/lib/kubelet &
-helm install --wait -n operators listener-operator oci://oci.stackable.tech/sdp-charts/listener-operator --version 26.7.0 --set kubeletDir=/var/snap/microk8s/common/var/lib/kubelet &
-helm install --wait -n operators hbase-operator oci://oci.stackable.tech/sdp-charts/hbase-operator --version 26.7.0 &
-wait
+kubectl apply -f hdfs-cli.yaml
+kubectl exec -it hdfs-cli -- hdfs dfs -ls /
+kubectl exec -it hdfs-cli -- hdfs dfs -ls /hbase
+kubectl port-forward svc/namenode 9870:9870
 
-### 3.3 Clusters (order: ZooKeeper -> znodes -> HDFS -> HBase)
+### 5.2 HBase
 
-kubectl create namespace hbase
-kubectl -n hbase apply -f zk-values.yaml
-kubectl -n hbase apply -f znode-values.yaml
-kubectl -n hbase apply -f hdfs-values.yaml
-kubectl -n hbase apply -f hbase-values.yaml
+kubectl exec -it hbase-master-0 -- hbase shell
 
-### 3.4 Check
+Phoenix - WEB_STAT example (creates a table, loads a CSV, runs queries):
 
-kubectl -n hbase wait --for=condition=Available --timeout=15m zookeepercluster/simple-zk hdfscluster/simple-hdfs hbasecluster/simple-hbase
-kubectl -n hbase get pods,pvc
-kubectl -n hbase exec -it simple-hbase-master-default-0 -- /stackable/hbase/bin/hbase shell
+kubectl exec hbase-master-0 -- /stackable/phoenix/bin/psql.py zookeeper:2181:/hbase /stackable/phoenix/examples/WEB_STAT.sql /stackable/phoenix/examples/WEB_STAT.csv /stackable/phoenix/examples/WEB_STAT_QUERIES.sql
 
-The operators watch all namespaces, so each further tech stack can get its own namespace without reinstalling them.
+REST - from inside the pod (the image has curl):
 
-## 4. Usage (kubectl)
+kubectl exec deploy/hbase-rest -- curl -s -H "Accept: application/json" http://localhost:8080/version/cluster
+kubectl exec deploy/hbase-rest -- curl -s -H "Accept: application/json" http://localhost:8080/
 
-Based on the Stackable getting started guides (docs 26.7), adapted to namespace hbase.
+REST from your own machine - port-forward in a separate terminal, then curl http://localhost:8080:
 
-### 4.1 HBase via Apache Phoenix
+kubectl port-forward svc/hbase-rest 8080:8080
 
-Phoenix is bundled in the HBase image, psql.py is run from the REST server pod. Tutorial example - creates table WEB_STAT, loads a CSV and runs sample queries:
 
-kubectl -n hbase exec simple-hbase-restserver-default-0 -- /stackable/phoenix/bin/psql.py /stackable/phoenix/examples/WEB_STAT.sql /stackable/phoenix/examples/WEB_STAT.csv /stackable/phoenix/examples/WEB_STAT_QUERIES.sql
+## 6. Uninstall (kubectl)
 
-Expected result at the end:
+Reverse order:
 
-HO                    TOTAL_ACTIVE_VISITORS
-EU                                      150
-NA                                        1
+kubectl delete -f hdfs-cli.yaml --ignore-not-found
+kubectl delete -f hbase.yaml
+kubectl delete -f hdfs.yaml
+kubectl delete -f zookeeper.yaml
 
-Own SQL/CSV files - copy them into the pod first, then pass them to psql.py the same way:
+PVCs are deleted together with the StatefulSets (persistentVolumeClaimRetentionPolicy: Delete). Check:
 
-kubectl cp -n hbase ./my.sql simple-hbase-restserver-default-0:/tmp/my.sql
-kubectl -n hbase exec simple-hbase-restserver-default-0 -- /stackable/phoenix/bin/psql.py /tmp/my.sql
-
-### 4.2 HBase via REST API
-
-Cluster version, cluster status, list of tables (Phoenix tables like WEB_STAT and SYSTEM.* show up here too):
-
-kubectl -n hbase exec simple-hbase-restserver-default-0 -- curl -s -H "Accept: application/json" "http://simple-hbase-restserver-default-headless:8080/version/cluster"
-kubectl -n hbase exec simple-hbase-restserver-default-0 -- curl -s -H "Accept: application/json" "http://simple-hbase-restserver-default-headless:8080/status/cluster"
-kubectl -n hbase exec simple-hbase-restserver-default-0 -- curl -s -H "Accept: application/json" "http://simple-hbase-restserver-default-headless:8080/"
-
-Create table users with column family cf:
-
-kubectl -n hbase exec simple-hbase-restserver-default-0 -- curl -s -XPUT -H "Accept: text/xml" -H "Content-Type: text/xml" "http://simple-hbase-restserver-default-headless:8080/users/schema" -d '<TableSchema name="users"><ColumnSchema name="cf" /></TableSchema>'
-
-## 5. Uninstall (kubectl)
-
-kubectl config use-context microk8s
-
-### 5.1 Clusters (reverse order)
-
-kubectl -n hbase delete -f hbase-values.yaml --wait
-kubectl -n hbase delete -f hdfs-values.yaml --wait
-kubectl -n hbase delete -f znode-values.yaml --wait
-kubectl -n hbase delete -f zk-values.yaml --wait
-
-### 5.2 Namespace
-
-Also removes PVCs. The operators don't delete them, and leftover PVCs would reattach old data.
-
-kubectl delete namespace hbase
-
-### 5.3 Operators
-
-helm uninstall -n operators hbase-operator
-helm uninstall -n operators listener-operator
-helm uninstall -n operators secret-operator
-helm uninstall -n operators commons-operator
-helm uninstall -n operators hdfs-operator
-helm uninstall -n operators zookeeper-operator
-kubectl delete namespace operators
+kubectl get pvc
