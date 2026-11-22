@@ -9,19 +9,47 @@ and saves it as CSV files.
 You need Python 3.10 or newer and a free OpenSky account.
 
 1. **Create an account** at <https://opensky-network.org> and verify your email.
-2. **Create an API client**: go to *My OpenSky → Account*, create an API client and
+2. **Create an API client**: go to _My OpenSky → Account_, create an API client and
    download `credentials.json`. Put it in this folder. It looks like this:
    ```json
-   {"clientId": "...", "clientSecret": "..."}
+   { "clientId": "...", "clientSecret": "..." }
    ```
    Keep it private and don't commit it (it's in `.gitignore`). Your website username and
    password won't work: the API only accepts these client credentials.
-3. **Install the dependency** (only `requests`):
+3. **Install the dependency** (only `requests`). In this folder, run the commands for
+   your terminal.
+
+   **Windows, PowerShell** (the prompt starts with `PS`):
+
+   ```powershell
+   py -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+
+   If PowerShell says that running scripts is disabled, run
+   `Set-ExecutionPolicy -Scope Process RemoteSigned` and activate again.
+
+   **Windows, Command Prompt (cmd)**:
+
+   ```bat
+   py -m venv .venv
+   .venv\Scripts\activate.bat
+   pip install -r requirements.txt
+   ```
+
+   **Linux / macOS**:
+
    ```bash
    python -m venv .venv
    source .venv/bin/activate          # fish shell: source .venv/bin/activate.fish
    pip install -r requirements.txt
    ```
+
+   On Windows use `py` to create the venv: `python` can point to another installation
+   (MSYS2, for example) that doesn't create a `Scripts` folder.
+
+   To leave the venv, run `deactivate`.
 
 ## Usage
 
@@ -29,13 +57,13 @@ You need Python 3.10 or newer and a free OpenSky account.
 python download_arrivals.py --airports KJFK --start 2025-01-01 --end 2025-03-31
 ```
 
-| Option | Meaning | Default |
-|---|---|---|
-| `--airports` | ICAO airport code (`KJFK`, not `JFK`) | `KJFK` |
-| `--start`, `--end` | First and last day, `YYYY-MM-DD`, in UTC. Both included. | required |
-| `--credentials` | Path to your `credentials.json` | `credentials.json` |
-| `--out` | Output folder | `data/opensky_arrivals` |
-| `--max-wait` | Seconds to wait when out of credits before giving up | `900` |
+| Option             | Meaning                                                  | Default                 |
+| ------------------ | -------------------------------------------------------- | ----------------------- |
+| `--airports`       | ICAO airport code (`KJFK`, not `JFK`)                    | `KJFK`                  |
+| `--start`, `--end` | First and last day, `YYYY-MM-DD`, in UTC. Both included. | required                |
+| `--credentials`    | Path to your `credentials.json`                          | `credentials.json`      |
+| `--out`            | Output folder                                            | `data/opensky_arrivals` |
+| `--max-wait`       | Seconds to wait when out of credits before giving up     | `900`                   |
 
 The files end up in folders like
 `data/opensky_arrivals/airport=KJFK/year=2025/month=01/2025-01-01_2025-01-02.csv`.
@@ -49,16 +77,16 @@ next day and it continues where it stopped (files it already saved are skipped).
 
 ## The CSV columns
 
-| Column | Meaning |
-|---|---|
-| `icao24` | Aircraft transponder address (identifies the plane) |
-| `callsign` | Flight callsign, e.g. `DAL9889`. The first 3 letters are the airline (DAL = Delta) |
-| `estDepartureAirport` | Where the flight most likely came from. Empty if OpenSky couldn't tell (about 18% at JFK) |
-| `estArrivalAirport` | The airport you asked for |
-| `firstSeen`, `lastSeen` | First and last time OpenSky saw the plane, Unix seconds, UTC |
-| `firstSeen_utc`, `lastSeen_utc` | The same times as readable UTC dates |
-| `est...HorizDistance`, `est...VertDistance` | Distance in metres from the airport at first/last sighting |
-| `...CandidatesCount` | How many airports OpenSky considered |
+| Column                                      | Meaning                                                                                   |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `icao24`                                    | Aircraft transponder address (identifies the plane)                                       |
+| `callsign`                                  | Flight callsign, e.g. `DAL9889`. The first 3 letters are the airline (DAL = Delta)        |
+| `estDepartureAirport`                       | Where the flight most likely came from. Empty if OpenSky couldn't tell (about 18% at JFK) |
+| `estArrivalAirport`                         | The airport you asked for                                                                 |
+| `firstSeen`, `lastSeen`                     | First and last time OpenSky saw the plane, Unix seconds, UTC                              |
+| `firstSeen_utc`, `lastSeen_utc`             | The same times as readable UTC dates                                                      |
+| `est...HorizDistance`, `est...VertDistance` | Distance in metres from the airport at first/last sighting                                |
+| `...CandidatesCount`                        | How many airports OpenSky considered                                                      |
 
 ## Things to know
 
@@ -86,30 +114,30 @@ next day and it continues where it stopped (files it already saved are skipped).
 Put your name in **Who** for the years you're downloading, so two people don't download the
 same year.
 
-| Year | Status | Who |
-|---|---|---|
-| 2026 | ⬜ | |
-| 2025 | 🟨 Jan–Nov | |
-| 2024 | ⬜ | |
-| 2023 | ⬜ | |
-| 2022 | ⬜ | |
-| 2021 | ⬜ | |
-| 2020 | ⬜ | |
-| 2019 | ⬜ | |
-| 2018 | ⬜ | |
-| 2017 | ⬜ | |
-| 2016 | ⬜ | |
-| 2015 | ⬜ | |
-| 2014 | ⬜ | |
-| 2013 | ⬜ | |
-| 2012 | ⬜ | |
-| 2011 | ⬜ | |
-| 2010 | ⬜ | |
-| 2009 | ⬜ | |
-| 2008 | ⬜ | |
-| 2007 | ⬜ | |
-| 2006 | ⬜ | |
-| 2005 | ⬜ | |
+| Year | Status            | Who   |
+| ---- | ----------------- | ----- |
+| 2026 | ⬜                |       |
+| 2025 | ✅                | Marty |
+| 2024 | 🟨 1 Jan – 18 Jul | Marty |
+| 2023 | ⬜                |       |
+| 2022 | ⬜                |       |
+| 2021 | ⬜                |       |
+| 2020 | ⬜                |       |
+| 2019 | ⬜                |       |
+| 2018 | ⬜                |       |
+| 2017 | ⬜                |       |
+| 2016 | ⬜                |       |
+| 2015 | ⬜                |       |
+| 2014 | ⬜                |       |
+| 2013 | ⬜                |       |
+| 2012 | ⬜                |       |
+| 2011 | ⬜                |       |
+| 2010 | ⬜                |       |
+| 2009 | ⬜                |       |
+| 2008 | ⬜                |       |
+| 2007 | ⬜                |       |
+| 2006 | ⬜                |       |
+| 2005 | ⬜                |       |
 
 ## Questions
 
