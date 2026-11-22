@@ -5,7 +5,7 @@
 4) Random forest performed the best out of the 3 models (even though xgb was close) so i went further with it and tried to improve it by adding a few modifications (in taxi-demand-rf-v3):
 - lag_2h and lag_3h, and roll_mean_3h (avg demand over the past 3 hours), to add more context and capture momentum/trends in the last few hours;
 - exact direction of the momentum (diff_1h = lag_1h - lag_2h) is the demand going down or up?
-- do_lag_1h and  - no. of dropoffs 1 prior in the respective zone (the logic is: people that got dropped there might need a taxi to return a few hours later; also the drop offs bring empty taxis in that zone)
+- do_lag_1h is no. of dropoffs 1 prior in the respective zone (the logic is: people that got dropped there might need a taxi to return a few hours later; also the drop offs bring empty taxis in that zone)
 
 
  - I'm conflicted regarding the necesity of using v3 over the original random forest. Over all it seems it doesn't perform better than the original (altough the numbers are veeery close), but it slighly beats it on the harder zones/hours. A downfall is that v3 has more computations due to the added features (i tried to optimize it slightly, but it still took longer than i expected to run locally). The performance shouldn't be that big of a hindrance when running on the cluster, i hope.
