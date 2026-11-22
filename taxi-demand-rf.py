@@ -4,12 +4,16 @@ from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
 from pyspark.ml.regression import RandomForestRegressor
 from pyspark.ml.evaluation import RegressionEvaluator
 
+import json
+import pandas as pd
+import os
 spark = SparkSession.builder.appName("taxi-demand").getOrCreate()
 
 # ----------------------------------------------------------------------
 # Settings
 # ----------------------------------------------------------------------
 PATH = "/Users/vera_k/Desktop/SDU/1. Sem/Big Data/Taxi/yellow_tripdata_2026-07.parquet"
+#PATH = "D:/Downloads/Pdfs/yellow_tripdata_2026-07.parquet"
 ZONES = None            # e.g. [132, 138, 161, 237] to model only specific pickup zones
 SPLIT_DATE = "2026-07-25"   # train before this date, test on/after it
 
@@ -103,8 +107,8 @@ for n, imp in zip(["zone", "hour", "day of week", "lag_1h", "lag_24h"],
 # ----------------------------------------------------------------------
 # 6. Hourly predictions for ALL zones together
 # ----------------------------------------------------------------------
-BASE = "/Users/vera_k/Desktop/SDU/1. Sem/Big Data/Taxi/"
-
+#BASE = "/Users/vera_k/Desktop/SDU/1. Sem/Big Data/Taxi/"
+BASE ="models/rf"
 all_preds = (model.transform(data)
              .withColumn("split", F.when(F.col("hour_ts") >= SPLIT_DATE, "test")
                                    .otherwise("train")))
@@ -117,7 +121,7 @@ zone_ids = sorted(r[0] for r in data.select("PULocationID").distinct().collect()
 zone_cols = [str(z) for z in zone_ids]
 
 wide_df = (long_df.groupBy("hour_ts")
-           .pivot("PULocationID", zone_ids)
+           .pivot("PULocationID", zone_ids) 
            .agg(F.first("predicted"))
            .orderBy("hour_ts"))
 wide_df = wide_df.withColumn("all_zones_total", F.round(sum(F.col(c) for c in zone_cols), 1))

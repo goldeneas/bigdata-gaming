@@ -3,12 +3,15 @@ from pyspark.ml import Pipeline
 from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
-
+import json
+import pandas as pd
+import os
 spark = SparkSession.builder.appName("taxi-demand").getOrCreate()
 
 # ----------------------------------------------------------------------
 # Settings
 # ----------------------------------------------------------------------
+#PATH = "D:/Downloads/Pdfs/yellow_tripdata_2026-07.parquet"
 PATH = "/Users/vera_k/Desktop/SDU/1. Sem/Big Data/Taxi/yellow_tripdata_2026-07.parquet"
 ZONES = None            # e.g. [132, 138, 161, 237] to model only specific pickup zones
 SPLIT_DATE = "2026-07-25"   # train before this date, test on/after it
@@ -90,22 +93,40 @@ def predict(df):
     p = model.transform(df)
     return p.withColumn("prediction", F.greatest(F.col("prediction"), F.lit(0.0)))  # no negative demand
 
+metrics_records = []
 def report(name, df):
     p = predict(df)
+    row = {"split": name.strip().lower()}
     for metric in ("rmse", "mae", "r2"):
         val = RegressionEvaluator(labelCol="demand", predictionCol="prediction",
                                   metricName=metric).evaluate(p)
+        row[metric] = round(val, 6)
         print("%s %s: %f" % (name, metric, val))
+    metrics_records.append(row)
 
 report("Train", train)
 report("Test ", test)
 
+BASE ="models/lr"
+metrics_df = pd.DataFrame(metrics_records)
+metrics_df.to_csv(os.path.join(BASE, "evaluation_metrics.csv"), index=False)
+
+with open(os.path.join(BASE, "evaluation_metrics.json"), "w") as f:
+    json.dump({
+        "model_type": "LinearRegression",
+        "split_date": SPLIT_DATE,
+        "intercept": lrModel.intercept,
+        "num_iterations": lrModel.summary.totalIterations,
+        "metrics": metrics_records
+    }, f, indent=4)
+
+print("Saved evaluation metrics to models/evaluation_metrics.csv and evaluation_metrics.json")
 # ----------------------------------------------------------------------
 # 6. Hourly predictions for ALL zones together
 #    One row per hour, one column per zone (column name = PULocationID)
 # ----------------------------------------------------------------------
-BASE = "/Users/vera_k/Desktop/SDU/1. Sem/Big Data/Taxi/"
 
+#BASE ="/Users/vera_k/Desktop/SDU/1. Sem/Big Data/Taxi/"
 all_preds = (model.transform(data)
              .withColumn("prediction", F.greatest(F.col("prediction"), F.lit(0.0)))
              .withColumn("split", F.when(F.col("hour_ts") >= SPLIT_DATE, "test")

@@ -1,0 +1,4 @@
+Model,RMSE,MAE,R2
+rf_march,12.422,3.845,0.9463
+Naive 1h Lag (y_t-1),17.375,5.445,0.8949
+Naive 24h Lag (y_t-24),24.218,6.305,0.7958
