@@ -129,16 +129,16 @@ FLIGHTS_DATA_DIR = Path(os.environ.get("FLIGHTS_DATA_DIR", "./data/flights"))
 # Everything with FIRST_YEAR <= year <= LAST_YEAR is loaded by THIS script.
 # Later years are left for the other script.
 # >>> PLACEHOLDER: final split
-HISTORICAL_FIRST_YEAR = int(os.environ.get("HISTORICAL_FIRST_YEAR", "2009"))
-HISTORICAL_LAST_YEAR = int(os.environ.get("HISTORICAL_LAST_YEAR", "2015"))
+TAXI_FIRST_YEAR = int(os.environ.get("TAXI_FIRST_YEAR", "2009"))
+TAXI_LAST_YEAR = int(os.environ.get("TAXI_LAST_YEAR", "2015"))
 
 # Flights get their own year range, because the flight data we have right now
 # (OpenSky arrivals at JFK) is ONLY 2025. With the taxi range 2009-2015 not a
 # single flight file would be loaded. By default it's the same range as taxi.
 # >>> PLACEHOLDER: decide the flights split together with the team (and which
 #     years of flights we download at all).
-FLIGHTS_FIRST_YEAR = int(os.environ.get("FLIGHTS_FIRST_YEAR", str(HISTORICAL_FIRST_YEAR)))
-FLIGHTS_LAST_YEAR = int(os.environ.get("FLIGHTS_LAST_YEAR", str(HISTORICAL_LAST_YEAR)))
+FLIGHTS_FIRST_YEAR = int(os.environ.get("FLIGHTS_FIRST_YEAR", str(TAXI_FIRST_YEAR)))
+FLIGHTS_LAST_YEAR = int(os.environ.get("FLIGHTS_LAST_YEAR", str(TAXI_LAST_YEAR)))
 
 # READ_BATCH_SIZE: how many rows we read from a file at once. Bigger means
 #   fewer reads but more memory. 50k taxi rows is a few tens of MB.
@@ -177,9 +177,9 @@ NAIVE_TIMESTAMP_TZ = os.environ.get("NAIVE_TIMESTAMP_TZ", "UTC")
 PROGRESS_FILE = Path(os.environ.get("PROGRESS_FILE", "./initial_load_progress.json"))
 
 # If the connection to Thrift breaks while we load a file, we reconnect and
-# load THAT file again from the start, up to MAX_RETRIES times. That's safe
-# because the row keys are always the same for the same ride, so HBase just
-# overwrites the cells instead of making duplicates.
+# continue THAT file from the last batch HBase confirmed. Rewriting a few rows
+# is safe because the row keys are always the same for the same ride, so HBase
+# just overwrites the cells instead of making duplicates.
 # MAX_RETRIES now counts failures IN A ROW without any progress in between.
 # As soon as a batch goes through again, the counter starts over. So a long
 # load that hits a stall every few million rows keeps going, and we only give
@@ -224,9 +224,12 @@ FLIGHTS_FAMILY = os.environ.get("FLIGHTS_FAMILY", FLIGHTS_TABLE)
 
 # max_versions=1: HBase only keeps the latest value of each cell. We never
 # need the old ones and it saves space.
-# Other options exist per family (e.g. compression="SNAPPY") but that's to decide.
-TAXI_COLUMN_FAMILIES = {TAXI_FAMILY: dict(max_versions=1)}
-FLIGHTS_COLUMN_FAMILIES = {FLIGHTS_FAMILY: dict(max_versions=1)}
+# compression="GZ": only used if THIS script creates the table. Better is to
+# create it in the HBase shell first, because happybase can't set FAST_DIFF:
+#   create 'taxis', {NAME => 'taxis', VERSIONS => 1, DATA_BLOCK_ENCODING => 'FAST_DIFF', COMPRESSION => 'GZ'}
+# Tested: FAST_DIFF + GZ made a full month 790 MB instead of ~19 GB.
+TAXI_COLUMN_FAMILIES = {TAXI_FAMILY: dict(max_versions=1, compression="GZ")}
+FLIGHTS_COLUMN_FAMILIES = {FLIGHTS_FAMILY: dict(max_versions=1, compression="GZ")}
 
 # The mapping is:   column in the file -> (column name in HBase, type)
 # Only the columns listed here are written. We decided the initial load
@@ -601,7 +604,7 @@ def list_taxi_files() -> List[Path]:
             log.warning("Skipping %s: name doesn't match the expected pattern", path.name)
             continue
         year = int(match.group(1))
-        if HISTORICAL_FIRST_YEAR <= year <= HISTORICAL_LAST_YEAR:
+        if TAXI_FIRST_YEAR <= year <= TAXI_LAST_YEAR:
             selected.append(path)
     return selected
 
