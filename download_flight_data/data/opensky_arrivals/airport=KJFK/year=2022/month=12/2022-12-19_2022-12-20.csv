@@ -1,0 +1,3 @@
+icao24,callsign,estDepartureAirport,estArrivalAirport,firstSeen,lastSeen,firstSeen_utc,lastSeen_utc,estDepartureAirportHorizDistance,estDepartureAirportVertDistance,estArrivalAirportHorizDistance,estArrivalAirportVertDistance,departureAirportCandidatesCount,arrivalAirportCandidatesCount
+a32ef8,JBU1674,KBNA,KJFK,1671574397,1671580516,2022-12-20T22:13:17Z,2022-12-20T23:55:16Z,1671,14,2614,72,0,1
+4ca614,EIN107,EIDW,KJFK,1671556474,1671580274,2022-12-20T17:14:34Z,2022-12-20T23:51:14Z,1967,101,2549,64,1,1
