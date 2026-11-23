@@ -69,7 +69,8 @@ spec:
   serviceName: namenode
   replicas: 1
   persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Delete
+    whenDeleted: Retain   # keep data after kubectl delete
+    whenScaled: Retain
   selector:
     matchLabels:
       app: namenode
@@ -91,17 +92,17 @@ spec:
               exec hdfs namenode
           env:
             - name: HADOOP_HEAPSIZE_MAX
-              value: "384m"
+              value: "1g"
           ports:
             - containerPort: 9000
             - containerPort: 9870
           resources:
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: 250m
+              memory: 1536Mi
             limits:
               cpu: "1"
-              memory: 768Mi
+              memory: 1536Mi
           volumeMounts:
             - name: data
               mountPath: /data
@@ -122,7 +123,7 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 256Mi
+            storage: 5Gi   # NameNode metadata (fsimage + edits)
 ---
 apiVersion: v1
 kind: Service
@@ -146,7 +147,8 @@ spec:
   serviceName: datanode
   replicas: 1   # demo; more DataNodes = raise dfs.replication
   persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Delete
+    whenDeleted: Retain   # keep data after kubectl delete
+    whenScaled: Retain
   selector:
     matchLabels:
       app: datanode
@@ -161,17 +163,17 @@ spec:
           command: ["hdfs", "datanode"]
           env:
             - name: HADOOP_HEAPSIZE_MAX
-              value: "384m"
+              value: "1g"
           ports:
             - containerPort: 9866
             - containerPort: 9864
           resources:
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: 250m
+              memory: 1536Mi
             limits:
-              cpu: "1"
-              memory: 768Mi
+              cpu: "2"
+              memory: 1536Mi
           volumeMounts:
             - name: data
               mountPath: /data
@@ -192,4 +194,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 1Gi   # demo
+            storage: 30Gi   # all HBase data (HFiles + WAL) lives here

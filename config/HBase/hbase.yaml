@@ -69,17 +69,17 @@ spec:
           command: ["hbase", "master", "start"]
           env:
             - name: HBASE_HEAPSIZE
-              value: "384m"
+              value: "1g"
           ports:
             - containerPort: 16000
             - containerPort: 16010
           resources:
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: 500m
+              memory: 1536Mi
             limits:
-              cpu: "1"
-              memory: 768Mi
+              cpu: "2"
+              memory: 1536Mi   # = request: heap 1g + off-heap
           volumeMounts:
             - name: config
               mountPath: /stackable/hbase/conf/hbase-site.xml
@@ -124,17 +124,17 @@ spec:
           command: ["hbase", "regionserver", "start"]
           env:
             - name: HBASE_HEAPSIZE
-              value: "512m"
+              value: "4g"
           ports:
             - containerPort: 16020
             - containerPort: 16030
           resources:
             requests:
-              cpu: 100m
-              memory: 768Mi
-            limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 6Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi   # = request: heap 4g + off-heap (memstore flush, direct buffers)
           volumeMounts:
             - name: config
               mountPath: /stackable/hbase/conf/hbase-site.xml
@@ -175,16 +175,16 @@ spec:
           command: ["hbase", "rest", "start", "-p", "8080"]
           env:
             - name: HBASE_HEAPSIZE
-              value: "256m"
+              value: "512m"
           ports:
             - containerPort: 8080
           resources:
             requests:
-              cpu: 50m
-              memory: 384Mi
+              cpu: 200m
+              memory: 1Gi
             limits:
-              cpu: "0.5"
-              memory: 512Mi
+              cpu: "1"
+              memory: 1Gi
           volumeMounts:
             - name: config
               mountPath: /stackable/hbase/conf/hbase-site.xml

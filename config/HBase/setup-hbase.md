@@ -8,7 +8,19 @@ Apache HBase: 2.6.6 + Apache Phoenix 5.3.1 (oci.stackable.tech/sdp/hbase:2.6.6-s
 
 ## 2. Files
 
-Resources set to the minimum for a demo: 0.5 CPU and ~2.9Gi RAM requests, ~4.3Gi RAM limits, ~1.5Gi PVC in total.
+Resources sized for normal use (single RegionServer, single DataNode): ~2.3 CPU and ~12.25Gi RAM requests, 11 CPU limits, memory limit = request, ~57Gi PVC in total.
+For a local microk8s run, lower HBASE_HEAPSIZE / HADOOP_HEAPSIZE_MAX, resources and PVC sizes if the machine has less memory.
+
+| Component | Heap | CPU req / limit | Memory (req = limit) | PVC |
+|---|---|---|---|---|
+| ZooKeeper | 512m | 100m / 1 | 768Mi | 2Gi |
+| NameNode | 1g | 250m / 1 | 1536Mi | 5Gi |
+| DataNode | 1g | 250m / 2 | 1536Mi | 30Gi (all HBase data) |
+| HBase Master | 1g | 500m / 2 | 1536Mi | - |
+| HBase RegionServer | 4g | 1 / 4 | 6Gi | - |
+| HBase REST | 512m | 200m / 1 | 1Gi | - |
+
+HBase pods have no PVC: tables (HFiles) and WAL are stored in HDFS (hbase.rootdir), i.e. on the DataNode PVC.
 
 zookeeper.yaml - ZooKeeper for HBase, 1 replica
 hdfs.yaml - HDFS: core-site.xml and hdfs-site.xml in a ConfigMap, 1 NameNode, 1 DataNode (replication 1)
@@ -79,6 +91,10 @@ kubectl delete -f hbase.yaml
 kubectl delete -f hdfs.yaml
 kubectl delete -f zookeeper.yaml
 
-PVCs are deleted together with the StatefulSets (persistentVolumeClaimRetentionPolicy: Delete). Check:
+PVCs are kept after the StatefulSets are deleted (persistentVolumeClaimRetentionPolicy: Retain), so a re-apply reuses the data. To wipe the data, delete them by hand:
+
+kubectl delete pvc data-zookeeper-0 data-namenode-0 data-datanode-0
+
+Check:
 
 kubectl get pvc

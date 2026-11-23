@@ -30,7 +30,8 @@ spec:
   serviceName: zookeeper-headless
   replicas: 1
   persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Delete
+    whenDeleted: Retain   # keep data after kubectl delete
+    whenScaled: Retain
   selector:
     matchLabels:
       app: zookeeper
@@ -48,16 +49,16 @@ spec:
             - name: ZOO_SERVER_ID
               value: "1"
             - name: ZOO_HEAP_SIZE   # MB, default 1024
-              value: "256"
+              value: "512"
           ports:
             - containerPort: 2181
           resources:
             requests:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 100m
+              memory: 768Mi
             limits:
-              cpu: "0.5"
-              memory: 512Mi
+              cpu: "1"
+              memory: 768Mi
           volumeMounts:
             - name: data
               mountPath: /bitnami/zookeeper
@@ -68,4 +69,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 256Mi
+            storage: 2Gi
