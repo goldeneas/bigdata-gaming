@@ -1,32 +1,56 @@
-# To use the KafkaConnector resource, you have to first enable the connector operator using
-# the strimzi.io/use-connector-resources annotation on the KafkaConnect custom resource.
-# From Apache Kafka 3.1.1 and 3.2.0, you also have to add the FileStreamSourceConnector
-# connector to the container image. You can do that using the kafka-connect-build.yaml example.
-apiVersion: kafka.strimzi.io/v1
-kind: KafkaConnector
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka2hbase-connector-config
+data:
+  connector.json: |
+    {
+      "connector.class": "io.confluent.connect.hbase.HBaseSinkConnector",
+      "tasks.max": "6",
+      "topics": "taxis,flights",
+      "key.converter": "io.confluent.connect.avro.AvroConverter",
+      "key.converter.schema.registry.url": "http://schema-registry:8081",
+      "value.converter": "io.confluent.connect.avro.AvroConverter",
+      "value.converter.schema.registry.url": "http://schema-registry:8081",
+      "confluent.topic.bootstrap.servers": "kafka-cluster-kafka-bootstrap:9092",
+      "confluent.topic.replication.factor": "1",
+      "hbase.zookeeper.quorum": "zookeeper",
+      "hbase.zookeeper.property.clientPort": "2181",
+      "auto.create.tables": "true",
+      "auto.create.column.families": "true",
+      "table.name.format": "${topic}"
+    }
+---
+apiVersion: batch/v1
+kind: Job
 metadata:
   name: kafka2hbase-connector
-  labels:
-    # The strimzi.io/cluster label identifies the KafkaConnect instance
-    # in which to create this connector. That KafkaConnect instance
-    # must have the strimzi.io/use-connector-resources annotation
-    # set to true.
-    strimzi.io/cluster: kafka-connect-cluster
 spec:
-  class: io.confluent.connect.hbase.HBaseSinkConnector
-  tasksMax: 6
-  config:
-    topics: taxis,flights
-
-    key.converter: io.confluent.connect.avro.AvroConverter
-    key.converter.schema.registry.url: http://schema-registry:8081
-    value.converter: io.confluent.connect.avro.AvroConverter
-    value.converter.schema.registry.url: http://schema-registry:8081
-
-    confluent.topic.bootstrap.servers: kafka-cluster-kafka-bootstrap:9092
-    confluent.topic.replication.factor: 1
-    hbase.zookeeper.quorum: zookeeper
-    hbase.zookeeper.property.clientPort: 2181
-    auto.create.tables: true
-    auto.create.column.families: true
-    table.name.format: ${topic}
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: register-connector
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              # PUT creates or updates the connector and is safe to repeat.
+              curl --fail-with-body --silent --show-error \
+                --connect-timeout 5 --max-time 30 \
+                --retry 120 --retry-delay 5 --retry-all-errors \
+                --request PUT \
+                --header 'Content-Type: application/json' \
+                --data-binary @/etc/connector/connector.json \
+                http://kafka-connect-cluster-connect-api:8083/connectors/kafka2hbase-connector/config
+          volumeMounts:
+            - name: config
+              mountPath: /etc/connector
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: kafka2hbase-connector-config

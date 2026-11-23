@@ -1,23 +1,96 @@
-apiVersion: kafka.strimzi.io/v1
-kind: KafkaConnect
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-connect-config
+data:
+  connect-distributed.properties: |
+    bootstrap.servers=kafka-cluster-kafka-bootstrap:9092
+    group.id=kafka-connect-group
+    config.storage.topic=kafka-connect-configs
+    status.storage.topic=kafka-connect-status
+    offset.storage.topic=kafka-connect-offsets
+    config.storage.replication.factor=-1
+    offset.storage.replication.factor=-1
+    status.storage.replication.factor=-1
+    key.converter=org.apache.kafka.connect.json.JsonConverter
+    value.converter=org.apache.kafka.connect.json.JsonConverter
+    plugin.path=/opt/kafka/plugins
+    listeners=http://0.0.0.0:8083
+    rest.advertised.port=8083
+    rest.advertised.listener=http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-connect-cluster-connect-api
+spec:
+  selector:
+    app: kafka-connect-cluster
+  ports:
+    - name: rest-api
+      port: 8083
+      targetPort: rest-api
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: kafka-connect-cluster
-  annotations:
-#  # use-connector-resources configures this KafkaConnect
-#  # to use KafkaConnector resources to avoid
-#  # needing to call the Connect REST API directly
-    strimzi.io/use-connector-resources: "true"
 spec:
-  version: 4.3.2
-  image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-ccf45fb7b1366ef17c0aa68454356af38187da86
   replicas: 1
-  bootstrapServers: kafka-cluster-kafka-bootstrap:9092
-  groupId: kafka-connect-group
-  configStorageTopic: kafka-connect-configs
-  statusStorageTopic: kafka-connect-status
-  offsetStorageTopic: kafka-connect-offsets
-  config:
-    # -1 means it will use the default replication factor configured in the broker
-    config.storage.replication.factor: -1
-    offset.storage.replication.factor: -1
-    status.storage.replication.factor: -1
+  selector:
+    matchLabels:
+      app: kafka-connect-cluster
+  template:
+    metadata:
+      labels:
+        app: kafka-connect-cluster
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: kafka-connect
+          # Rebuild/publish the Dockerfile in this directory before deploying.
+          # Replace latest with the new image digest for an immutable deployment.
+          image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-cd336ecf1f3f75dbd0afd0fd4a7e4421c1c5e7f2 
+          imagePullPolicy: Always
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              cp /etc/kafka-connect/connect-distributed.properties /tmp/connect-distributed.properties
+              echo "rest.advertised.host.name=${POD_IP}" >> /tmp/connect-distributed.properties
+              exec /opt/kafka/bin/connect-distributed.sh /tmp/connect-distributed.properties
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: KAFKA_HEAP_OPTS
+              value: -Xms256m -Xmx1g
+          ports:
+            - name: rest-api
+              containerPort: 8083
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1536Mi
+            limits:
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: rest-api
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: rest-api
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kafka-connect
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: kafka-connect-config

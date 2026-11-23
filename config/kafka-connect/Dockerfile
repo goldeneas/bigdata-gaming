@@ -1,4 +1,6 @@
-FROM quay.io/strimzi/kafka:1.3.1-kafka-4.3.2
-USER root:root
-COPY ./plugins/ /opt/kafka/plugins/
-USER 1001
+FROM apache/kafka:4.3.2
+
+COPY --chown=appuser:appuser ./plugins/ /opt/kafka/plugins/
+
+# Run Kafka Connect directly; no operator-generated configuration is needed.
+CMD ["/opt/kafka/bin/connect-distributed.sh", "/etc/kafka-connect/connect-distributed.properties"]
