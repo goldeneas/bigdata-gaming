@@ -49,9 +49,8 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: kafka-connect
-          # Rebuild/publish the Dockerfile in this directory before deploying.
-          # Replace latest with the new image digest for an immutable deployment.
-          image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-cd336ecf1f3f75dbd0afd0fd4a7e4421c1c5e7f2 
+          # Published from the commit that switched to the Apache Kafka image.
+          image: ghcr.io/goldeneas/bigdata-gaming/kafka-connect:sha-0bcd4e515475a9deae89e5221e65d402b59b577b
           imagePullPolicy: Always
           command: ["/bin/bash", "-ec"]
           args:

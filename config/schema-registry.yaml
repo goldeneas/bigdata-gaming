@@ -12,6 +12,8 @@ spec:
       labels:
         app: schema-registry
     spec:
+      # Avoid SCHEMA_REGISTRY_PORT injected from the Service of the same name.
+      enableServiceLinks: false
       containers:
         - name: schema-registry
           image: confluentinc/cp-schema-registry:7.7.13
