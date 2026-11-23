@@ -194,4 +194,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 30Gi   # all HBase data (HFiles + WAL) lives here
+            storage: 200Gi   # all HBase data lives here, cant rescale without deleting data

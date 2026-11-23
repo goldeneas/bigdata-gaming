@@ -8,23 +8,24 @@ Apache HBase: 2.6.6 + Apache Phoenix 5.3.1 (oci.stackable.tech/sdp/hbase:2.6.6-s
 
 ## 2. Files
 
-Resources sized for normal use (single RegionServer, single DataNode): ~2.3 CPU and ~12.25Gi RAM requests, 11 CPU limits, memory limit = request, ~57Gi PVC in total.
+Resources sized for normal use (single RegionServer, single DataNode): ~2.5 CPU and ~13.25Gi RAM requests, 12 CPU limits, memory limit = request, ~107Gi PVC in total.
 For a local microk8s run, lower HBASE_HEAPSIZE / HADOOP_HEAPSIZE_MAX, resources and PVC sizes if the machine has less memory.
 
 | Component | Heap | CPU req / limit | Memory (req = limit) | PVC |
 |---|---|---|---|---|
 | ZooKeeper | 512m | 100m / 1 | 768Mi | 2Gi |
 | NameNode | 1g | 250m / 1 | 1536Mi | 5Gi |
-| DataNode | 1g | 250m / 2 | 1536Mi | 30Gi (all HBase data) |
+| DataNode | 1g | 250m / 2 | 1536Mi | 100Gi (all HBase data) |
 | HBase Master | 1g | 500m / 2 | 1536Mi | - |
 | HBase RegionServer | 4g | 1 / 4 | 6Gi | - |
 | HBase REST | 512m | 200m / 1 | 1Gi | - |
+| HBase Thrift | JVM default | 200m / 1 | 1Gi | - |
 
 HBase pods have no PVC: tables (HFiles) and WAL are stored in HDFS (hbase.rootdir), i.e. on the DataNode PVC.
 
 zookeeper.yaml - ZooKeeper for HBase, 1 replica
 hdfs.yaml - HDFS: core-site.xml and hdfs-site.xml in a ConfigMap, 1 NameNode, 1 DataNode (replication 1)
-hbase.yaml - hbase-site.xml, HBase Master, RegionServer, REST
+hbase.yaml - hbase-site.xml, HBase Master, RegionServer, REST, Thrift
 hdfs-cli.yaml - pod with the hdfs dfs client, same config as HDFS (optional, after hdfs.yaml)
 
 ## 3. How to - local (microk8s)
@@ -54,6 +55,7 @@ kubectl rollout status statefulset/datanode
 kubectl rollout status statefulset/hbase-master
 kubectl rollout status statefulset/hbase-regionserver
 kubectl rollout status deployment/hbase-rest
+kubectl rollout status deployment/hbase-thrift
 
 ## 5. Usage
 
@@ -80,6 +82,28 @@ kubectl exec deploy/hbase-rest -- curl -s -H "Accept: application/json" http://l
 REST from your own machine - port-forward in a separate terminal, then curl http://localhost:8080:
 
 kubectl port-forward svc/hbase-rest 8080:8080
+
+Thrift (Thrift1: binary protocol, buffered transport) - for happybase and Hue. Port-forward in a separate terminal:
+
+kubectl port-forward svc/hbase-thrift 9090:9090
+
+Python (pip install happybase):
+
+```python
+import happybase
+
+conn = happybase.Connection("localhost", 9090)   # inside the cluster: "hbase-thrift"
+print(conn.tables())
+
+table = conn.table("trips")
+for key, data in table.scan(limit=5):
+    print(key, data)
+
+table.put(b"t0006", {b"info:pickup_zone": b"JFK", b"info:fare": b"40.00"})
+print(table.row(b"t0006"))
+```
+
+Thrift server web UI (not in the Service): kubectl port-forward deploy/hbase-thrift 9095:9095, then http://localhost:9095
 
 
 ## 6. Uninstall (kubectl)

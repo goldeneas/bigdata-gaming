@@ -1,4 +1,4 @@
-# HBase 2.6.6 + Phoenix 5.3.1: hbase-site.xml, Master, RegionServer, REST
+# HBase 2.6.6 + Phoenix 5.3.1: hbase-site.xml, Master, RegionServer, REST, Thrift
 # Stackable without operator
 apiVersion: v1
 kind: ConfigMap
@@ -178,6 +178,52 @@ spec:
               value: "512m"
           ports:
             - containerPort: 8080
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /stackable/hbase/conf/hbase-site.xml
+              subPath: hbase-site.xml
+      volumes:
+        - name: config
+          configMap:
+            name: hbase-config
+---
+# Thrift1 - Thrift API (port 9090)
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-thrift
+spec:
+  selector:
+    app: hbase-thrift
+  ports:
+    - name: thrift
+      port: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hbase-thrift
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hbase-thrift
+  template:
+    metadata:
+      labels:
+        app: hbase-thrift
+    spec:
+      containers:
+        - name: hbase-thrift
+          image: oci.stackable.tech/sdp/hbase:2.6.6-stackable26.7.0
+          command: ["hbase", "thrift", "start", "-p", "9090"]
           resources:
             requests:
               cpu: 200m
