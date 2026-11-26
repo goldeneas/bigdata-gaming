@@ -1,6 +1,6 @@
 # convert_to_avro.py
 
-Converts the taxi Parquet files and the flight CSV files to Avro files, with the column names and types of `initial_load.py`.
+Converts the taxi Parquet files and the flight CSV files to Avro files, with the column names and types of `initial_load.py`. Both scripts get them from the common part, `../common/shared.py` (mappings, conversion, row keys, file listing), so keep the `common` folder next to `converter`.
 
 It only converts. It doesn't send anything to Kafka and doesn't simulate streaming.
 
@@ -38,10 +38,10 @@ converter/data/avro/
 
 - **Rows:** all of them, in the order of the file. Nothing is sorted, filtered or deduplicated.
 - **Fields:** named like the HBase columns, all nullable. Every file of a dataset has the same schema.
-- **Times:** milliseconds (`timestamp-millis`). Flights are real UTC. Taxi is New York wall clock stored as if it was UTC, like the initial load, so convert it before joining with flights.
-- **Row key:** not a field. The taxi key needs the file name and the row number, so keep both if you load these files into HBase or Kafka.
+- **Times:** milliseconds (`timestamp-millis`), all real UTC. Taxi times are New York wall clock in the files and get converted (18:00 New York = 23:00 UTC in winter, 22:00 in summer), same as the initial load, so they line up with the flights.
+- **Row key:** not a field. The Kafka key has to be `shared.taxi_row_key(pickup_ts, file name, row number)` (row number = position in the original monthly file, from 0), sent as an Avro string, so the HBase sink builds exactly the same row key as the initial load. Flights: `shared.flight_row_keys()`.
 - **Taxi years:** 2011 and later. 2009/2010 have other layouts and stop the script with an error.
-- **Newer columns:** `Airport_fee` (2023-02+, stored as `airport_fee`), `cbd_congestion_fee` (2025-01+) and `request_source` (2026-06+) are included. `initial_load.py` doesn't have these three.
+- **Newer columns:** `Airport_fee` (2023-02+, stored as `airport_fee`), `cbd_congestion_fee` (2025-01+) and `request_source` (2026-06+) are included. They're in the shared mapping, so the initial load has them too (its 2011-01 to 2022-10 files just don't contain them).
 
 ## Settings
 
@@ -50,8 +50,8 @@ converter/data/avro/
 | `TAXI_DATA_DIR` | `converter/data/taxi` |
 | `FLIGHTS_DATA_DIR` | `download_flight_data/data/opensky_arrivals` |
 | `OUTPUT_DIR` | `converter/data/avro` |
-| `NAIVE_TIMESTAMP_TZ` | `UTC`, must be the same as in `initial_load.py` |
-| `READ_BATCH_SIZE` | `50000` rows |
+| `TAXI_SOURCE_TZ` | `America/New_York` (in `shared.py`): the timezone the taxi times are written in, they get converted to UTC. Replaces `NAIVE_TIMESTAMP_TZ` |
+| `READ_BATCH_SIZE` | `50000` rows (in `shared.py`) |
 
 ## Tests
 
@@ -60,4 +60,4 @@ pip install pandas
 python -m unittest -v test_convert_to_avro
 ```
 
-They compare the output with `initial_load.py`. That comparison is skipped if the script isn't in the repo root or `loadscripts/` (or set `INITIAL_LOAD_PATH`).
+They compare the output with the bytes `initial_load.py` writes into HBase (that test is skipped if the script isn't in `loadscripts/` or the repo root, or set `INITIAL_LOAD_PATH`), check every flight against its CSV, and check the New York -> UTC conversion around the daylight saving changes.

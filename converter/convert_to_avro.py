@@ -5,7 +5,9 @@ What this script does (the "Converting to AVRO" part of our Python script box)
 ------------------------------------------------------------------------------
 1. Finds the taxi Parquet files and the flights CSV files.
 2. Reads them in chunks, so memory stays low no matter how big a file is.
-3. Gives the columns the names and types that initial_load.py uses in HBase.
+3. Gives the columns the names and types that initial_load.py uses in HBase,
+   with the common part (../common/shared.py), the same code initial_load.py
+   uses. Taxi times are converted to real UTC there.
 4. Writes one .avro file per input file.
 
 It only converts: every row is kept, in the order of the file.
@@ -47,9 +49,12 @@ from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 import fastavro
 import pyarrow as pa
-import pyarrow.compute as pc
-import pyarrow.csv as pa_csv
-import pyarrow.parquet as pq
+
+# The common part (mappings, conversion, row keys, file listing), shared with
+# initial_load.py. It's in ../common; Python looks in the script's own folder
+# first, so it also works when all files are in one folder.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
+import shared  # noqa: E402  (has to come after the sys.path line)
 
 
 # CONFIGURATION
@@ -57,86 +62,20 @@ import pyarrow.parquet as pq
 
 HERE = Path(__file__).resolve().parent
 
-# >>> PLACEHOLDER: depends on where we keep the data.
+# >>> PLACEHOLDER: where the live taxi files and the .avro output go isn't
+# decided yet.
 TAXI_DATA_DIR = Path(os.environ.get("TAXI_DATA_DIR", HERE / "data" / "taxi"))
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", HERE / "data" / "avro"))
+# Flights: where download_flight_data/download_arrivals.py saves them.
 FLIGHTS_DATA_DIR = Path(os.environ.get(
     "FLIGHTS_DATA_DIR", HERE.parent / "download_flight_data" / "data" / "opensky_arrivals"))
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", HERE / "data" / "avro"))
 
-# MUST have the same value as in initial_load.py (see the comment there).
-# "UTC" = we store the New York wall clock as if it was UTC.
-NAIVE_TIMESTAMP_TZ = os.environ.get("NAIVE_TIMESTAMP_TZ", "UTC")
+# The taxi timezone (TAXI_SOURCE_TZ) and READ_BATCH_SIZE are in shared.py, so
+# both scripts use the same values. Taxi times are stored as real UTC.
 
-READ_BATCH_SIZE = int(os.environ.get("READ_BATCH_SIZE", "50000"))
-
-
-# SCHEMA: WHICH COLUMNS GO INTO AVRO
-# column in the file -> (Avro field = HBase column, type)
-# Copied from initial_load.py, only its layout for 2011 and later. The 2009/2010
-# files are rejected with an error.
-#
-# CHECKED the columns of all 129 months 2016-01 to 2026-09. Three things are new
-# compared to 2011-2015, they are marked below.
-
-TAXI_COLUMN_MAPPING: Dict[str, Tuple[str, str]] = {
-    "VendorID":              ("vendor_id", "int"),
-    "tpep_pickup_datetime":  ("pickup_ts", "timestamp"),
-    "tpep_dropoff_datetime": ("dropoff_ts", "timestamp"),
-    "passenger_count":       ("passengers", "int"),
-    "trip_distance":         ("distance", "double"),
-    "RatecodeID":            ("rate_code", "int"),
-    "store_and_fwd_flag":    ("store_and_fwd_flag", "string"),
-    "PULocationID":          ("pu_zone", "int"),
-    "DOLocationID":          ("do_zone", "int"),
-    "payment_type":          ("payment_type", "int"),
-    "fare_amount":           ("fare", "double"),
-    "extra":                 ("extra", "double"),
-    "mta_tax":               ("mta_tax", "double"),
-    "tip_amount":            ("tip", "double"),
-    "tolls_amount":          ("tolls", "double"),
-    "improvement_surcharge": ("improvement_surcharge", "double"),
-    "total_amount":          ("total", "double"),
-    "congestion_surcharge":  ("congestion_surcharge", "double"),
-    "airport_fee":           ("airport_fee", "double"),          # up to 2023-01
-    "Airport_fee":           ("airport_fee", "double"),          # NEW: capital A from 2023-02
-    "cbd_congestion_fee":    ("cbd_congestion_fee", "double"),   # NEW: from 2025-01
-    "request_source":        ("request_source", "string"),       # NEW: from 2026-06
-}
-
-FLIGHTS_COLUMN_MAPPING: Dict[str, Tuple[str, str]] = {
-    "icao24":                           ("icao24", "string"),
-    "callsign":                         ("callsign", "string"),
-    "estDepartureAirport":              ("dep_airport", "string"),
-    "estArrivalAirport":                ("arr_airport", "string"),
-    "firstSeen":                        ("first_seen_ts", "unix_seconds"),
-    "lastSeen":                         ("last_seen_ts", "unix_seconds"),
-    "firstSeen_utc":                    ("first_seen_utc", "string"),
-    "lastSeen_utc":                     ("last_seen_utc", "string"),
-    "estDepartureAirportHorizDistance": ("dep_horiz_dist", "int"),
-    "estDepartureAirportVertDistance":  ("dep_vert_dist", "int"),
-    "estArrivalAirportHorizDistance":   ("arr_horiz_dist", "int"),
-    "estArrivalAirportVertDistance":    ("arr_vert_dist", "int"),
-    "departureAirportCandidatesCount":  ("dep_candidates", "int"),
-    "arrivalAirportCandidatesCount":    ("arr_candidates", "int"),
-}
-
-# our type -> (Avro type, Arrow type we convert the column to)
-# Both time types are milliseconds since 1970, like in initial_load.py.
-TYPES = {
-    "string":       ("string", pa.string()),
-    "int":          ("int", pa.int32()),
-    "double":       ("double", pa.float64()),
-    "timestamp":    ({"type": "long", "logicalType": "timestamp-millis"}, pa.int64()),
-    "unix_seconds": ({"type": "long", "logicalType": "timestamp-millis"}, pa.int64()),
-}
-
-
-def build_schema(name: str, mapping: Dict[str, Tuple[str, str]]) -> dict:
-    """The Avro schema of one dataset, made from its mapping so they can't differ.
-    Every field may be null, that way one schema fits all the years."""
-    fields = [{"name": field, "type": ["null", TYPES[value_type][0]], "default": None}
-              for field, value_type in dict(mapping.values()).items()]
-    return {"type": "record", "name": name, "namespace": "bigdata_gaming", "fields": fields}
+# The mappings, the types, the Avro schema and the column conversion are in
+# shared.py too (TAXI_COLUMN_MAPPING, FLIGHTS_COLUMN_MAPPING, TYPES,
+# build_avro_schema(), convert_column(), convert_batch()).
 
 
 # LOGGING SETUP
@@ -154,78 +93,17 @@ def setup_logging() -> None:
 
 
 # VALUE CONVERSION
-# initial_load.py converts value by value (encode_value). Here we convert whole
-# columns, which is a lot faster, with the same rules.
-
-def convert_column(column, value_type: str):
-    arrow_type = TYPES[value_type][1]
-    if pa.types.is_null(column.type):       # completely empty, e.g. airport_fee in 2016
-        return pa.nulls(len(column), arrow_type)
-    if value_type == "string":
-        return column.cast(arrow_type)
-
-    if value_type == "timestamp":
-        times = column.cast(pa.timestamp("ms"), safe=False)
-        if NAIVE_TIMESTAMP_TZ != "UTC":
-            # Same daylight saving rules as to_epoch_millis() in initial_load.py:
-            # the hour that happens twice = the second one, the missing hour = 03:00.
-            times = pc.assume_timezone(times, NAIVE_TIMESTAMP_TZ,
-                                       ambiguous="latest", nonexistent="latest")
-        return times.cast(arrow_type)
-
-    # Numbers go through float first, so "5", 5 and 5.0 all work, and NaN becomes null.
-    numbers = column.cast(pa.float64(), safe=False)
-    numbers = pc.if_else(pc.is_nan(numbers), pa.scalar(None, pa.float64()), numbers)
-    if value_type == "double":
-        return numbers
-    # trunc() cuts off like int() does. The cast still fails if a number is too big.
-    whole = pc.trunc(numbers).cast(arrow_type)
-    return pc.multiply(whole, 1000) if value_type == "unix_seconds" else whole
-
+# shared.convert_batch() does it for whole columns, the same way as for
+# initial_load.py. Avro wants one dict per row, so we turn the table into those.
 
 def convert_batch(batch, mapping: Dict[str, Tuple[str, str]]) -> List[dict]:
     """One batch from a file -> Avro records, with every field of the schema."""
-    available = set(batch.schema.names)
-    columns = {field: pa.nulls(batch.num_rows, TYPES[value_type][1])
-               for field, value_type in dict(mapping.values()).items()}
-    for source, (field, value_type) in mapping.items():
-        if source in available:
-            columns[field] = convert_column(batch.column(source), value_type)
-    return pa.table(columns).to_pylist()
+    return shared.convert_batch(batch, mapping).to_pylist()
 
 
 # FINDING AND READING THE FILES
-
-def list_taxi_files() -> List[Path]:
-    return sorted(TAXI_DATA_DIR.glob("*.parquet"))
-
-
-def list_flight_files() -> List[Path]:
-    return sorted(FLIGHTS_DATA_DIR.rglob("*.csv"))
-
-
-def read_taxi_columns(path: Path) -> List[str]:
-    return pq.read_schema(path).names
-
-
-def read_flight_columns(path: Path) -> List[str]:
-    with pa_csv.open_csv(path) as reader:
-        return reader.schema.names
-
-
-def iter_taxi_batches(path: Path) -> Iterator[pa.RecordBatch]:
-    with pq.ParquetFile(path) as parquet_file:
-        wanted = [c for c in parquet_file.schema_arrow.names if c in TAXI_COLUMN_MAPPING]
-        yield from parquet_file.iter_batches(batch_size=READ_BATCH_SIZE, columns=wanted)
-
-
-def iter_flight_batches(path: Path) -> Iterator[pa.RecordBatch]:
-    # Everything is read as text (like dtype=str in initial_load.py), empty = null.
-    options = pa_csv.ConvertOptions(
-        column_types={column: pa.string() for column in FLIGHTS_COLUMN_MAPPING},
-        null_values=[""], strings_can_be_null=True, quoted_strings_can_be_null=True)
-    with pa_csv.open_csv(path, convert_options=options) as reader:
-        yield from reader
+# shared.py has them: list_taxi_files(), list_flight_files(), read_taxi_columns(),
+# read_flight_columns(), iter_taxi_batches(), iter_flight_batches().
 
 
 # DESCRIBING A DATASET (same idea as in initial_load.py)
@@ -246,22 +124,22 @@ DATASETS = {
     "taxi": DatasetSpec(
         name="taxi",
         input_dir=TAXI_DATA_DIR,
-        mapping=TAXI_COLUMN_MAPPING,
-        schema=build_schema("TaxiRide", TAXI_COLUMN_MAPPING),
-        required_columns=("tpep_pickup_datetime", "tpep_dropoff_datetime"),
-        list_files=list_taxi_files,
-        read_columns=read_taxi_columns,
-        iter_batches=iter_taxi_batches,
+        mapping=shared.TAXI_COLUMN_MAPPING,
+        schema=shared.build_avro_schema("TaxiRide", shared.TAXI_COLUMN_MAPPING),
+        required_columns=shared.TAXI_REQUIRED_COLUMNS,
+        list_files=lambda: shared.list_taxi_files(TAXI_DATA_DIR),
+        read_columns=shared.read_taxi_columns,
+        iter_batches=shared.iter_taxi_batches,
     ),
     "flights": DatasetSpec(
         name="flights",
         input_dir=FLIGHTS_DATA_DIR,
-        mapping=FLIGHTS_COLUMN_MAPPING,
-        schema=build_schema("FlightArrival", FLIGHTS_COLUMN_MAPPING),
-        required_columns=("icao24", "lastSeen"),
-        list_files=list_flight_files,
-        read_columns=read_flight_columns,
-        iter_batches=iter_flight_batches,
+        mapping=shared.FLIGHTS_COLUMN_MAPPING,
+        schema=shared.build_avro_schema("FlightArrival", shared.FLIGHTS_COLUMN_MAPPING),
+        required_columns=shared.FLIGHTS_REQUIRED_COLUMNS,
+        list_files=lambda: shared.list_flight_files(FLIGHTS_DATA_DIR),
+        read_columns=shared.read_flight_columns,
+        iter_batches=shared.iter_flight_batches,
     ),
 }
 
@@ -269,12 +147,8 @@ DATASETS = {
 def check_files(spec: DatasetSpec, files: List[Path]) -> None:
     """Look at the columns of every file BEFORE we start converting."""
     for path in files:
-        columns = set(spec.read_columns(path))
-        missing = [c for c in spec.required_columns if c not in columns]
-        if missing:
-            raise ValueError(f"{path.name} has no {missing}, can't convert this layout.")
-        unknown = sorted(c for c in columns - set(spec.mapping)
-                         if not c.startswith("__index_level_"))
+        unknown = shared.check_columns(path.name, spec.read_columns(path),
+                                       spec.mapping, spec.required_columns)
         if unknown:
             log.warning("%s has columns we DON'T convert: %s", path.name, unknown)
 
@@ -325,6 +199,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[List[str]] = None) -> int:
     setup_logging()
     args = parse_args(argv)
+    # Fails right away if this machine can't convert New York time to UTC.
+    shared.check_timezone_support()
     names = ["taxi", "flights"] if args.dataset == "all" else [args.dataset]
 
     selected = []

@@ -1,10 +1,16 @@
 # Secrets
 credentials/
 
+credentials.json
+
 # Python
 .venv/
+.venv*/
 __pycache__/
 *.pyc
 
 # Downloaded data
 # download_flight_data/data/
+
+# macOS
+.DS_Store

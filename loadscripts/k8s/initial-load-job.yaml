@@ -1,0 +1,119 @@
+# Initial load of the historical taxis (2011-01 to 2022-10) as a Kubernetes Job,
+# running next to HBase in our namespace (bd-gr-07).
+#
+# The code doesn't need a Docker image: it comes from a ConfigMap
+# (initial-load-code, made from initial_load.py + shared.py, see the README),
+# and a plain Python image installs the 3 packages when the pod starts.
+# Every month is downloaded from TLC inside the pod, loaded, and deleted again.
+#
+#   kubectl apply -f loadscripts/k8s/initial-load-job.yaml
+#   kubectl logs -f job/taxi-initial-load
+#
+# If the pod dies (node restart, out of memory...), Kubernetes starts it again
+# and the script continues from the progress file on the volume below: finished
+# months are skipped, a half-done month continues from its saved row.
+#
+# The cluster's node has its main disk almost full (checked 2026-11-26: 99-100%,
+# with "disk pressure" switching on and off), and that's the disk a pod's own
+# files and emptyDir volumes go to. So everything that takes space (the
+# downloaded month, the Python packages, the progress file) goes to this
+# volume instead. Volumes are on the node's big data disk (5.4 TB free).
+
+# One volume for the progress file (finished months + position in the
+# current month), the current month's download and the Python packages.
+# It survives pod restarts, so the packages are only installed once.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: taxi-initial-load-work
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: taxi-initial-load
+spec:
+  # A failed pod is started again up to 10 times, every time continuing
+  # where the last one stopped. The script itself already retries HBase
+  # problems for ~5 minutes before it gives up.
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: taxi-initial-load
+    spec:
+      restartPolicy: OnFailure
+      # Kubernetes normally puts an env variable for every Service into the pod,
+      # e.g. HBASE_THRIFT_PORT=tcp://<service IP>:9090 for our hbase-thrift
+      # Service. That's the same name as our setting and crashes the script
+      # (found when testing the container locally). So: no Service variables.
+      enableServiceLinks: false
+      containers:
+        - name: initial-load
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # pyarrow needs the system's timezone database for New York -> UTC,
+              # and the slim image doesn't have it (a few MB, the package lists are deleted again).
+              apt-get update -qq && apt-get install -y -qq --no-install-recommends tzdata > /dev/null
+              rm -rf /var/lib/apt/lists/*
+              # Python packages go to the volume, not the pod's own disk (see the top).
+              # The .installed file is only written when pip finished, so a pod that
+              # died in the middle of installing installs again.
+              if [ ! -f /work/python/.installed ]; then
+                rm -rf /work/python
+                pip install --quiet --no-cache-dir --root-user-action=ignore --target /work/python happybase pyarrow numpy
+                touch /work/python/.installed
+              fi
+              export PYTHONPATH=/work/python
+              # exec: python replaces the shell, so it gets Kubernetes' stop signal
+              # (SIGTERM) itself and can save its position before the pod dies.
+              exec python -u /app/initial_load.py
+          env:
+            - name: HBASE_THRIFT_HOST
+              value: "hbase-thrift"        # the Thrift Service from config/HBase/hbase.yaml
+            - name: HBASE_THRIFT_PORT      # set on purpose, see enableServiceLinks above
+              value: "9090"
+            - name: TAXI_TABLE
+              value: "taxis"
+            - name: TAXI_FIRST_MONTH       # historical = until the flight data starts (2022-11)
+              value: "2011-01"
+            - name: TAXI_LAST_MONTH
+              value: "2022-10"
+            - name: TAXI_SOURCE_TZ         # store real UTC (team decision)
+              value: "America/New_York"
+            - name: TAXI_DOWNLOAD          # download every month from TLC
+              value: "1"
+            - name: TAXI_DATA_DIR          # where the current month is downloaded to
+              value: "/work/download"
+            - name: PROGRESS_FILE
+              value: "/work/initial_load_progress.json"
+            - name: HBASE_WRITE_WAL        # keep the write-ahead log (safer)
+              value: "1"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 100Mi     # the pod's own disk: only tzdata + logs
+            limits:
+              cpu: "2"
+              memory: 3Gi                  # one month in pyarrow + batches (measured ~330 MB), with room
+              ephemeral-storage: 1Gi
+          volumeMounts:
+            - name: code
+              mountPath: /app
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: code
+          configMap:
+            name: initial-load-code
+        - name: work
+          persistentVolumeClaim:
+            claimName: taxi-initial-load-work
