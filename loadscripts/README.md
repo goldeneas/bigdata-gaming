@@ -2,11 +2,11 @@
 
 Prototype of the "Python Script, Initial Load Historical Data" box in our architecture diagram. It takes the historical taxi files from disk and writes them straight into HBase, so only the newer data has to go through Kafka.
 
-Status: works locally, also on a full month of taxi data (2015-01, 12.7M rows), as long as the HBase table is created with compression first (see "Setup"). Without compression, full months broke the local HBase (see "Known problems"). Now loads only the taxis 2011-01 to 2022-10 (team decision: "live" starts where our flight data starts, 2022-11), with the conversion shared with the streaming script (`../common/shared.py`) and the times stored as real UTC. Runs on the cluster as a Kubernetes Job (see "Running it on the cluster"): tested there with a test Job on two months, the full load hasn't run yet. Flights aren't loaded anymore (only the live flights are needed).
+Status: works locally, also on a full month of taxi data (2015-01, 12.7M rows), as long as the HBase table is created with compression first (see "Setup"). Without compression, full months broke the local HBase (see "Known problems"). Now loads only the taxis 2011-01 to 2020-12 (team decision: 10 years of historical data here, 5 years of live streaming from 2021-01), with the conversion shared with the streaming script (`../common/shared.py`) and the times stored as real UTC. Runs on the cluster as a Kubernetes Job (see "Running it on the cluster"): tested there with a test Job on two months, the full load was started on 2026-11-26. Flights aren't loaded by this script.
 
 ## What it does
 
-1. Finds the historical taxi Parquet files (one per month) and keeps only the months we count as "historical" (2011-01 to 2022-10). On the cluster it downloads them from TLC itself, one month at a time.
+1. Finds the historical taxi Parquet files (one per month) and keeps only the months we count as "historical" (2011-01 to 2020-12). On the cluster it downloads them from TLC itself, one month at a time.
 2. Reads them in chunks, so memory stays low no matter how big a file is.
 3. Converts the columns with the common part (`../common/shared.py`), the same code the streaming script uses: same column names and types, taxi times converted from New York time to real UTC, same row keys.
 4. Turns every ride into an HBase row (row key + cells) and writes the rows in batches to HBase through the HBase Thrift server (Python library `happybase`).
@@ -60,7 +60,7 @@ python initial_load.py --dry-run --dry-run-rows 3
 # Small real load: first 10,000 rows of every file
 python initial_load.py --limit-rows 10000
 
-# Full load: all historical taxi files (2011-01 to 2022-10)
+# Full load: all historical taxi files (2011-01 to 2020-12)
 python initial_load.py
 
 # Only some months, e.g. 2015
@@ -87,7 +87,7 @@ Everything is an environment variable with a default. In Kubernetes the Job's YA
 | `HBASE_TRANSPORT` / `HBASE_PROTOCOL` | `buffered` / `binary` | must match how Thrift was started |
 | `TAXI_TABLE` | `taxis` | same as the sink (`${topic}`) |
 | `TAXI_DATA_DIR` | `./data/taxi` | input folder (or where the downloads go) |
-| `TAXI_FIRST_MONTH` / `TAXI_LAST_MONTH` | `2011-01` / `2022-10` | taxi months this script loads, both included (replaces `TAXI_FIRST_YEAR` / `TAXI_LAST_YEAR`, the split is in the middle of 2022) |
+| `TAXI_FIRST_MONTH` / `TAXI_LAST_MONTH` | `2011-01` / `2020-12` | taxi months this script loads, both included (replaces `TAXI_FIRST_YEAR` / `TAXI_LAST_YEAR`) |
 | `TAXI_DOWNLOAD` | `0` | `1` = download the months from TLC (`TAXI_DOWNLOAD_URL`) |
 | `TAXI_SOURCE_TZ` | `America/New_York` | timezone the taxi times are written in; they get converted to real UTC. In `shared.py`, the streaming script uses the same value. Replaces `NAIVE_TIMESTAMP_TZ` |
 | `READ_BATCH_SIZE` / `WRITE_BATCH_SIZE` | `50000` / `5000` | rows per read (in `shared.py`) / rows per HBase call |
@@ -137,11 +137,11 @@ Everything is an environment variable with a default. In Kubernetes the Job's YA
 
 - Full months broke the local HBase with a plain (uncompressed) table. Loading all of 2015-01 (12.7M rows) failed twice at around 6M rows. HBase's log showed "too many store files; delaying flush up to 90000 ms" (it blocks all writes while it merges files), and in the end "No space left on device": My Docker's disk was full. HBase needs a lot more disk while writing than the final table size (write-ahead log, compactions, old files waiting to be cleaned). Fixed by creating the table with FAST_DIFF + GZ (see "Setup").
 - Storage: measured ~1.5 KB per ride without compression (~19 GB for a 12.7M-ride month) and ~62 bytes per ride with FAST_DIFF + GZ (~0.8 GB for the same month).
-- The cluster HBase config (branch `feat/prepare-hbase-config-files`) had no Thrift server and ~1.5 Gi of storage. Fixed since: Thrift server `hbase-thrift` on port 9090, 200Gi for HDFS. 2011-01 to 2022-10 is roughly 1.35 billion rides (rough estimate from TLC's yearly totals), so ~85 GB with FAST_DIFF + GZ, plus temporary space while loading.
+- The cluster HBase config (branch `feat/prepare-hbase-config-files`) had no Thrift server and ~1.5 Gi of storage. Fixed since: Thrift server `hbase-thrift` on port 9090, 200Gi for HDFS. 2011-01 to 2020-12 is 1,288,300,471 rides (counted from the TLC files, 17.2 GB of Parquet), so ~80 GB with FAST_DIFF + GZ, plus temporary space while loading.
 - The taxi row key starts with the pickup time, and the files are roughly in time order, so all writes go to the newest region. Locally the table split into a 35 MB and a 753 MB region and the second one got almost all the writes. Doesn't matter with one RegionServer, but with several we'd need a salt prefix in the key (the old `NUM_SALT_BUCKETS` setting was removed, the team decided on time first without salt) or a pre-split table.
 - The cluster's node has its main disk 99-100% full (checked 2026-11-26, "disk pressure" switching on and off; while it's on, no new pods can start). That disk holds every pod's own files, so the Job keeps its downloads and Python packages on its own volume (on the node's 6.8 TB data disk, 5.4 TB free), where HDFS/HBase also keep their data. The full main disk is still a problem for the whole cluster and has to go to whoever runs our HBase setup / the course staff.
 - The Job needs internet from inside the pod (TLC, Debian packages, PyPI) and has to run as root to install `tzdata` (pyarrow needs the system's timezone database for New York -> UTC, and the `TZDIR` variable doesn't help, tested). Checked on the cluster 2026-11-26: both work.
-- Speed: ~8,300 rows/s inside the cluster (test Job) means roughly 2 days for 2011-01 to 2022-10 with one Job. Two Jobs on different month ranges could run in parallel (each with its own name, volume and progress file).
+- Speed: ~8,300 rows/s in the test Job, ~9,300 rows/s in the real one, so roughly 1.5-2 days for 2011-01 to 2020-12 with one Job. Two Jobs on different month ranges could run in parallel (each with its own name, volume and progress file).
 
 ## Running it on the cluster (Kubernetes Job)
 
@@ -182,5 +182,5 @@ Decisions for all of us:
 - Maybe write without the write-ahead log for the initial load (`HBASE_WRITE_WAL=0`): faster and much less temporary disk, but if HBase crashes the last writes are lost without an error, so we'd have to check the counts afterwards.
 
 Work:
-- Run the Job on the cluster for 2011-01 to 2022-10 and check the counts.
+- Wait for the Job (2011-01 to 2020-12) to finish and check the count: `count 'taxis'` should be 1,288,300,471.
 - Live streaming script: send the Avro from `convert_to_avro.py` to Kafka with `shared.taxi_row_key()` as the key.

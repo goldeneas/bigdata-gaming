@@ -157,13 +157,16 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(second.sends, 17)                      # only the rest was written
 
     def test_month_range(self):
-        # historical = 2011-01 to 2022-10, the split is in the middle of 2022
-        months = shared.months_between("2011-01", "2022-10")
-        self.assertEqual((len(months), months[0], months[-1]), (142, (2011, 1), (2022, 10)))
-        for name in ("yellow_tripdata_2022-10.parquet", "yellow_tripdata_2022-11.parquet"):
+        # historical = 2011-01 to 2020-12, live starts 2021-01
+        months = shared.months_between("2011-01", "2020-12")
+        self.assertEqual((len(months), months[0], months[-1]), (120, (2011, 1), (2020, 12)))
+        for name in ("yellow_tripdata_2020-12.parquet", "yellow_tripdata_2021-01.parquet"):
             (self.folder / name).touch()
-        self.assertEqual([p.name for p in shared.list_taxi_files(self.folder, "2022-01", "2022-10")],
-                         ["yellow_tripdata_2022-10.parquet"])
+        self.assertEqual([p.name for p in shared.list_taxi_files(self.folder, "2020-01", "2020-12")],
+                         ["yellow_tripdata_2020-12.parquet"])
+        # the defaults in the script are the same range
+        self.assertEqual((il.TAXI_FIRST_MONTH, il.TAXI_LAST_MONTH),
+                         ("2011-01", "2020-12"))
 
     def test_progress_file(self):
         progress_path = self.folder / "progress.json"

@@ -1,6 +1,6 @@
 # common/shared.py
 
-The common part of `loadscripts/initial_load.py` (historical taxis 2011-01 to 2022-10 straight into HBase) and `converter/convert_to_avro.py` (Avro for the live part, which goes Kafka -> HBase sink -> the same table). Both have to produce exactly the same values, so everything that decides what a value looks like is here, once:
+The common part of `loadscripts/initial_load.py` (historical taxis 2011-01 to 2020-12 straight into HBase) and `converter/convert_to_avro.py` (Avro for the live part, which goes Kafka -> HBase sink -> the same table). Both have to produce exactly the same values, so everything that decides what a value looks like is here, once:
 
 - `TAXI_COLUMN_MAPPING` / `FLIGHTS_COLUMN_MAPPING`: file column -> (field = HBase column = Avro field, type). Taxi is the 2011+ layout only.
 - `convert_batch()` / `convert_column()`: whole columns to those types with pyarrow. Taxi times are converted from New York time to real UTC (`TAXI_SOURCE_TZ`, default `America/New_York`).

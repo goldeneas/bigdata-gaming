@@ -3,8 +3,8 @@ shared.py  (the common part of initial_load.py and convert_to_avro.py)
 
 Both scripts read the same taxi / flight files and have to turn them into
 EXACTLY the same values:
-  - initial_load.py writes the historical taxis (2011-01 to 2022-10) straight into HBase
-  - convert_to_avro.py makes the Avro for the live part (2022-11 on), which goes
+  - initial_load.py writes the historical taxis (2011-01 to 2020-12) straight into HBase
+  - convert_to_avro.py makes the Avro for the live part (2021-01 on), which goes
     Kafka -> Kafka Connect HBase sink -> the same HBase table
 If they did it differently, Spark would see two formats in one table.
 
@@ -69,7 +69,7 @@ READ_BATCH_SIZE = int(os.environ.get("READ_BATCH_SIZE", "50000"))
 #   2023-02 to 2024-12: the same, but spelled Airport_fee (capital A)
 #   2025-01 to 2026-05: + cbd_congestion_fee
 #   2026-06 to 2026-09: + request_source
-# So all historical months (2011-01 to 2022-10) have exactly the first 19, and
+# So all historical months (2011-01 to 2020-12) have exactly the first 19, and
 # the three marked NEW only show up in the live streaming. If a file doesn't
 # have a column, its rides just get no cell / null for it.
 TAXI_COLUMN_MAPPING: Dict[str, Tuple[str, str]] = {
@@ -306,7 +306,7 @@ def _in_range(year: int, month: int, first_month: Optional[str], last_month: Opt
 def list_taxi_files(folder: Path, first_month: Optional[str] = None,
                     last_month: Optional[str] = None) -> List[Path]:
     """The monthly taxi files in a folder, sorted, optionally only the months
-    first_month..last_month (e.g. "2011-01", "2022-10"; the month is taken
+    first_month..last_month (e.g. "2011-01", "2020-12"; the month is taken
     from the file name, no need to open the file)."""
     selected = []
     for path in sorted(Path(folder).glob("*.parquet")):

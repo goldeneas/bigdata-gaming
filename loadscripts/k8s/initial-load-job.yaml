@@ -1,4 +1,4 @@
-# Initial load of the historical taxis (2011-01 to 2022-10) as a Kubernetes Job,
+# Initial load of the historical taxis (2011-01 to 2020-12) as a Kubernetes Job,
 # running next to HBase in our namespace (bd-gr-07).
 #
 # The code doesn't need a Docker image: it comes from a ConfigMap
@@ -82,10 +82,10 @@ spec:
               value: "9090"
             - name: TAXI_TABLE
               value: "taxis"
-            - name: TAXI_FIRST_MONTH       # historical = until the flight data starts (2022-11)
+            - name: TAXI_FIRST_MONTH       # historical = 10 years, live starts 2021-01
               value: "2011-01"
             - name: TAXI_LAST_MONTH
-              value: "2022-10"
+              value: "2020-12"
             - name: TAXI_SOURCE_TZ         # store real UTC (team decision)
               value: "America/New_York"
             - name: TAXI_DOWNLOAD          # download every month from TLC

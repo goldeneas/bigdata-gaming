@@ -1,10 +1,10 @@
 """
-initial_load.py  (loads the historical taxis 2011-01 to 2022-10 into HBase)
+initial_load.py  (loads the historical taxis 2011-01 to 2020-12 into HBase)
 
 What this script does (the "Python Script Initial Load Historical Data" box)
 ---------------------------------------------------------------------------
 1. Finds the monthly taxi Parquet files for the months we picked as
-   "historical" (2011-01 to 2022-10). In Kubernetes it can download them from TLC
+   "historical" (2011-01 to 2020-12). In Kubernetes it can download them from TLC
    itself, one month at a time.
 2. Reads them in chunks, so memory stays low no matter how big a file is.
 3. Converts the columns with the common part (../common/shared.py), the same
@@ -15,7 +15,7 @@ What this script does (the "Python Script Initial Load Historical Data" box)
 5. Remembers which files are done AND how far it got in a half-done file, so
    if it crashes we can just start it again and it continues where it stopped.
 
-IMPORTANT: the streamed data (2022-11 on) gets into HBase through the Kafka
+IMPORTANT: the streamed data (2021-01 on) gets into HBase through the Kafka
 Connect HBase sink (config/kafka2hbase-connector.yaml in our repo). The rows
 this script writes have to look EXACTLY like the rows the sink writes
 (same tables, same column family, same column names, same row keys, same
@@ -127,12 +127,11 @@ TAXI_DATA_DIR = Path(os.environ.get("TAXI_DATA_DIR", "./data/taxi"))
 
 # Every month from TAXI_FIRST_MONTH to TAXI_LAST_MONTH (both included) is
 # loaded by THIS script, the rest goes through the streaming script.
-# Team decision: "live" starts where our flight data starts, and the oldest
-# flight data is from 2022-11 (November and December 2022 are only partly
-# there, full months from 2023-01). So historical = 2011-01 to 2022-10.
-# Months instead of years, because the split is in the middle of a year.
+# Team decision: 10 years of historical data through this script
+# (2011-01 to 2020-12) and 5 years of live streaming from 2021-01 on.
+# (Before that it was until 2022-10, when we only had flight data from 2022-11.)
 TAXI_FIRST_MONTH = os.environ.get("TAXI_FIRST_MONTH", "2011-01")
-TAXI_LAST_MONTH = os.environ.get("TAXI_LAST_MONTH", "2022-10")
+TAXI_LAST_MONTH = os.environ.get("TAXI_LAST_MONTH", "2020-12")
 
 # TAXI_DOWNLOAD=1: download every month of the range from TLC into
 # TAXI_DATA_DIR, one at a time, and delete it again after it's loaded. So the

@@ -41,7 +41,7 @@ converter/data/avro/
 - **Times:** milliseconds (`timestamp-millis`), all real UTC. Taxi times are New York wall clock in the files and get converted (18:00 New York = 23:00 UTC in winter, 22:00 in summer), same as the initial load, so they line up with the flights.
 - **Row key:** not a field. The Kafka key has to be `shared.taxi_row_key(pickup_ts, file name, row number)` (row number = position in the original monthly file, from 0), sent as an Avro string, so the HBase sink builds exactly the same row key as the initial load. Flights: `shared.flight_row_keys()`.
 - **Taxi years:** 2011 and later. 2009/2010 have other layouts and stop the script with an error.
-- **Newer columns:** `Airport_fee` (2023-02+, stored as `airport_fee`), `cbd_congestion_fee` (2025-01+) and `request_source` (2026-06+) are included. They're in the shared mapping, so the initial load has them too (its 2011-01 to 2022-10 files just don't contain them).
+- **Newer columns:** `Airport_fee` (2023-02+, stored as `airport_fee`), `cbd_congestion_fee` (2025-01+) and `request_source` (2026-06+) are included. They're in the shared mapping, so the initial load has them too (its 2011-01 to 2020-12 files just don't contain them).
 
 ## Settings
 
